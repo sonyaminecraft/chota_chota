@@ -1,0 +1,210 @@
+import random
+import tkinter as tk
+
+# Настройки экрана
+WIDTH = 800
+HEIGHT = 600
+PLAYER_SPEED = 15
+INITIAL_FALL_SPEED = 4
+
+
+class AdvancedSpaceGame:
+
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Space Garbage Collector Pro")
+        self.root.resizable(False, False)
+
+        # Главный холст
+        self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="#050510")
+        self.canvas.pack()
+
+        # Игровые переменные
+        self.score = 0
+        self.fall_speed = INITIAL_FALL_SPEED
+        self.game_over = False
+
+        # Генерируем красивое звездное небо на заднем фоне
+        self.stars = []
+        self.create_stars()
+
+        # Интерфейс счета
+        self.score_text = self.canvas.create_text(
+            70,
+            30,
+            text=f"SCORE: {self.score}",
+            fill="#00ffff",
+            font=("Courier New", 18, "bold"),
+        )
+
+        # Игрок — теперь это крутой неоновый истребитель (полигон из 7 точек)
+        self.player = self.canvas.create_polygon(
+            WIDTH // 2,
+            HEIGHT - 60,  # Нос
+            WIDTH // 2 - 25,
+            HEIGHT - 20,  # Левое крыло
+            WIDTH // 2 - 15,
+            HEIGHT - 25,  # Левый внутренний угол
+            WIDTH // 2,
+            HEIGHT - 35,  # Хвост внутренний
+            WIDTH // 2 + 15,
+            HEIGHT - 25,  # Правый внутренний угол
+            WIDTH // 2 + 25,
+            HEIGHT - 20,  # Правое крыло
+            fill="#00ffcc",
+            outline="#ffffff",
+            width=2,
+        )
+
+        # Космический мусор — радиоактивная светящаяся сфера
+        self.garbage = self.canvas.create_oval(
+            0,
+            0,
+            35,
+            35,
+            fill="#ff0055",
+            outline="#ffcc00",
+            width=3,
+            tags="garbage",
+        )
+        self.respawn_garbage()
+
+        # Зажимаем клавиши для плавного управления во все стороны (WASD + Стрелки)
+        self.keys = {
+            "w": False,
+            "s": False,
+            "a": False,
+            "d": False,
+            "Up": False,
+            "Down": False,
+            "Left": False,
+            "Right": False,
+        }
+
+        # Биндим нажатия и отпускания клавиш
+        self.root.bind("<KeyPress>", self.press_key)
+        self.root.bind("<KeyRelease>", self.release_key)
+
+        # Погнали!
+        self.update_game()
+
+    def create_stars(self):
+        """Создает 60 звезд случайного размера и яркости."""
+        for _ in range(60):
+            x = random.randint(0, WIDTH)
+            y = random.randint(0, HEIGHT)
+            size = random.choice([1, 2, 3])
+            color = random.choice(["#ffffff", "#aaaaaa", "#5555ff", "#ffaa00"])
+            star = self.canvas.create_oval(
+                x, y, x + size, y + size, fill=color, outline=""
+            )
+            # Запоминаем звезду и ее индивидуальную скорость мерцания
+            self.stars.append((star, random.choice([1, 1.5, 2])))
+
+    def respawn_garbage(self):
+        """Выкидывает новый мусор сверху."""
+        x = random.randint(30, WIDTH - 60)
+        self.canvas.moveto(self.garbage, x, -50)
+
+    def press_key(self, event):
+        if event.keysym in self.keys:
+            self.keys[event.keysym] = True
+
+    def release_key(self, event):
+        if event.keysym in self.keys:
+            self.keys[event.keysym] = False
+
+    def process_movement(self):
+        """Расчет движения корабля по 4 направлениям одновременно."""
+        if self.game_over:
+            return
+
+        dx, dy = 0, 0
+        if self.keys["w"] or self.keys["Up"]:
+            dy = -PLAYER_SPEED
+        if self.keys["s"] or self.keys["Down"]:
+            dy = PLAYER_SPEED
+        if self.keys["a"] or self.keys["Left"]:
+            dx = -PLAYER_SPEED
+        if self.keys["d"] or self.keys["Right"]:
+            dx = PLAYER_SPEED
+
+        # Проверяем границы, чтобы не улететь за экран
+        p_box = self.canvas.bbox(self.player)
+        if p_box:
+            # Границы по X
+            if (dx < 0 and p_box[0] <= 10) or (dx > 0 and p_box[2] >= WIDTH - 10):
+                dx = 0
+            # Границы по Y
+            if (dy < 0 and p_box[1] <= 10) or (dy > 0 and p_box[3] >= HEIGHT - 10):
+                dy = 0
+
+            self.canvas.move(self.player, dx, dy)
+
+    def animate_stars(self):
+        """Движение звезд вниз, создающее иллюзию полета вперед."""
+        for star, speed in self.stars:
+            self.canvas.move(star, 0, speed)
+            # Если звезда улетела вниз экрана, возвращаем ее наверх
+            s_box = self.canvas.bbox(star)
+            if s_box and s_box[1] > HEIGHT:
+                self.canvas.moveto(star, random.randint(0, WIDTH), -5)
+
+    def check_collision(self):
+        """Проверка, поймал ли корабль летящий кусок мусора."""
+        p_box = self.canvas.bbox(self.player)
+        g_box = self.canvas.bbox(self.garbage)
+
+        if p_box and g_box:
+            # Условия пересечения двух квадратов (хитбоксов)
+            if not (
+                p_box[2] < g_box[0]
+                or p_box[0] > g_box[2]
+                or p_box[3] < g_box[1]
+                or p_box[1] > g_box[3]
+            ):
+                self.score += 1
+                self.canvas.itemconfig(
+                    self.score_text, text=f"SCORE: {self.score}"
+                )
+                self.fall_speed += 0.3  # Постепенно увеличиваем скорость игры
+                self.respawn_garbage()
+
+    def update_game(self):
+        """Основной такт игры (50 кадров в секунду)."""
+        if not self.game_over:
+            self.process_movement()
+            self.animate_stars()
+
+            # Двигаем мусор вниз
+            self.canvas.move(self.garbage, 0, self.fall_speed)
+            self.check_collision()
+
+            # Если мусор упустили ниже экрана — конец игры
+            g_box = self.canvas.bbox(self.garbage)
+            if g_box and g_box[1] > HEIGHT:
+                self.game_over = True
+                # Красивая неоновая надпись конца игры
+                self.canvas.create_text(
+                    WIDTH // 2,
+                    HEIGHT // 2,
+                    text="GAME OVER",
+                    fill="#ff0055",
+                    font=("Courier New", 40, "bold"),
+                )
+                self.canvas.create_text(
+                    WIDTH // 2,
+                    HEIGHT // 2 + 50,
+                    text="You let the space debris escape!",
+                    fill="#ffffff",
+                    font=("Courier New", 14),
+                )
+
+            # Перерисовываем экран через 20 миллисекунд
+            self.root.after(20, self.update_game)
+
+
+if __name__ == "__main__":
+    window = tk.Tk()
+    game = AdvancedSpaceGame(window)
+    window.mainloop()
